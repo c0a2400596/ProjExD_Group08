@@ -17,6 +17,7 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 PURPLE = (128, 0, 128)
+CYAN = (0, 255, 255)
 
 # 敵の種類
 ENEMY_TYPE_NORMAL = 0
@@ -32,36 +33,55 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 class Player(pygame.sprite.Sprite):
     """自機クラス"""
-    def __init__(self):
+    def __init__(self, p_type=0):
         super().__init__()
+        self.p_type = p_type # 0:TypeA, 1:TypeB
         self.image = pygame.Surface((30, 30))
-        self.image.fill(BLUE)
+        
+        # タイプによって色と性能を変える
+        if self.p_type == 0:
+            # Type A: バランス型（青）
+            self.image.fill(BLUE)
+            self.speed = 5
+            self.shoot_interval = 80
+        else:
+            # Type B: 高速移動型（赤）
+            self.image.fill(RED)
+            self.speed = 8
+            self.shoot_interval = 80
+
         self.rect = self.image.get_rect()
         self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
-        self.speed = 5
         self.last_shot_time = 0
 
     def update(self):
         keys = pygame.key.get_pressed()
+        # Shiftキーを押している間は低速移動（東方風）
+        current_speed = self.speed
+        if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
+            current_speed = self.speed / 2
+
         if keys[pygame.K_LEFT] and self.rect.left > 0:
-            self.rect.x -= self.speed
+            self.rect.x -= current_speed
         if keys[pygame.K_RIGHT] and self.rect.right < SCREEN_WIDTH:
-            self.rect.x += self.speed
+            self.rect.x += current_speed
         if keys[pygame.K_UP] and self.rect.top > 0:
-            self.rect.y -= self.speed
+            self.rect.y -= current_speed
         if keys[pygame.K_DOWN] and self.rect.bottom < SCREEN_HEIGHT:
-            self.rect.y += self.speed
+            self.rect.y += current_speed
 
     def shoot(self):
         now = pygame.time.get_ticks()
-        if now - self.last_shot_time > 80:
+        if now - self.last_shot_time > self.shoot_interval:
             # 3WAY弾
             bullet_centers = [0, -15, 15]
             for angle in bullet_centers:
                 rad = math.radians(angle)
                 vx = math.sin(rad) * 10
                 vy = -math.cos(rad) * 10
-                bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True)
+                # 弾の色もキャラに合わせる
+                is_p = True
+                bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True, p_type=self.p_type)
                 all_sprites.add(bullet)
                 player_bullets.add(bullet)
             self.last_shot_time = now
@@ -156,17 +176,18 @@ class Boss(pygame.sprite.Sprite):
 
 class Bullet(pygame.sprite.Sprite):
     """弾クラス"""
-    def __init__(self, x, y, vy, vx=0, is_player_bullet=True):
+    def __init__(self, x, y, vy, vx=0, is_player_bullet=True, p_type=0):
         super().__init__()
         size = 10 if is_player_bullet else 8
         self.image = pygame.Surface((size, size))
-        color = WHITE if is_player_bullet else RED
         
-        if not is_player_bullet:
-             pygame.draw.circle(self.image, color, (size//2, size//2), size//2)
-             self.image.set_colorkey(BLACK)
+        if is_player_bullet:
+            color = CYAN if p_type == 0 else (255, 100, 100) # タイプによって弾の色変更
+            self.image.fill(color)
         else:
-             self.image.fill(color)
+            color = RED
+            pygame.draw.circle(self.image, color, (size//2, size//2), size//2)
+            self.image.set_colorkey(BLACK)
 
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
@@ -183,16 +204,15 @@ class Bullet(pygame.sprite.Sprite):
 # --- 3. ゲーム初期化 ---
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("シューティング") # ウィンドウタイトルも日本語化
+pygame.display.set_caption("シューティングゲーム")
 clock = pygame.time.Clock()
 
-# 【重要】日本語フォントの設定
-# Windowsなら 'meiryo' や 'msgothic' が使えます
+# フォント設定
 try:
     font = pygame.font.SysFont("meiryo", 40)
     small_font = pygame.font.SysFont("meiryo", 24)
 except:
-    font = pygame.font.Font(None, 40) # 読み込み失敗時はデフォルト
+    font = pygame.font.Font(None, 40)
     small_font = pygame.font.Font(None, 24)
 
 # グループ作成
@@ -202,17 +222,21 @@ boss_group = pygame.sprite.Group()
 player_bullets = pygame.sprite.Group()
 enemy_bullets = pygame.sprite.Group()
 
-player = Player()
-all_sprites.add(player)
+# プレイヤー変数はここで定義だけしておく
+player = None
 
+# ゲーム変数
 score = 0
 next_boss_score = BOSS_APPEAR_INTERVAL
 boss_level = 1
 is_boss_active = False
+selected_char_idx = 0 # 0:TypeA, 1:TypeB
 
+# ゲーム状態定義
 GAME_STATE_TITLE = 0
-GAME_STATE_PLAYING = 1
-GAME_STATE_GAMEOVER = 2
+GAME_STATE_SELECT = 1     # ★追加
+GAME_STATE_PLAYING = 2
+GAME_STATE_GAMEOVER = 3
 current_state = GAME_STATE_TITLE
 
 # --- 4. ゲームループ ---
@@ -223,27 +247,42 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         
+        # ■ タイトル画面
         if current_state == GAME_STATE_TITLE:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    # ゲーム開始
+                    current_state = GAME_STATE_SELECT # 選択画面へ
+                elif event.key == pygame.K_ESCAPE:
+                    running = False
+
+        # ■ キャラ選択画面 (新設)
+        elif current_state == GAME_STATE_SELECT:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    selected_char_idx = 0 # Type A
+                elif event.key == pygame.K_RIGHT:
+                    selected_char_idx = 1 # Type B
+                elif event.key == pygame.K_SPACE or event.key == pygame.K_z:
+                    # ゲーム開始初期化処理
                     all_sprites.empty()
                     enemies.empty()
                     boss_group.empty()
                     player_bullets.empty()
                     enemy_bullets.empty()
-                    player = Player()
+                    
+                    # 選択したタイプでプレイヤー生成
+                    player = Player(selected_char_idx)
                     all_sprites.add(player)
+                    
                     score = 0
                     next_boss_score = BOSS_APPEAR_INTERVAL
                     boss_level = 1
                     is_boss_active = False
                     current_state = GAME_STATE_PLAYING
-                
-                # ★追加機能: ESCキーで終了
                 elif event.key == pygame.K_ESCAPE:
-                    running = False # ループを抜けて終了
+                    current_state = GAME_STATE_TITLE # 戻る
 
+        # ■ ゲームオーバー画面
         elif current_state == GAME_STATE_GAMEOVER:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 current_state = GAME_STATE_TITLE
@@ -298,41 +337,61 @@ while running:
     screen.fill(BLACK)
 
     if current_state == GAME_STATE_TITLE:
-        # 日本語テキストの描画
         title_text = font.render("東方風シューティング", True, WHITE)
-        start_text = font.render("スペースキーで開始", True, YELLOW)
+        start_text = font.render("スペースキーで次へ", True, YELLOW)
         quit_text = small_font.render("ESCキーで終了", True, WHITE)
-        
-        # 中央揃えで配置
         screen.blit(title_text, (SCREEN_WIDTH//2 - title_text.get_width()//2, SCREEN_HEIGHT//2 - 60))
         screen.blit(start_text, (SCREEN_WIDTH//2 - start_text.get_width()//2, SCREEN_HEIGHT//2 + 20))
         screen.blit(quit_text, (SCREEN_WIDTH//2 - quit_text.get_width()//2, SCREEN_HEIGHT//2 + 100))
 
+    elif current_state == GAME_STATE_SELECT:
+        sel_title = font.render("キャラクター選択", True, WHITE)
+        screen.blit(sel_title, (SCREEN_WIDTH//2 - sel_title.get_width()//2, 100))
+        
+        # キャラクターのプレビュー描画（四角形を表示）
+        # Type A
+        color_a = BLUE if selected_char_idx == 0 else (50, 50, 100)
+        rect_a = pygame.Rect(SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 - 50, 100, 100)
+        pygame.draw.rect(screen, color_a, rect_a)
+        name_a = small_font.render("Type A: バランス", True, WHITE)
+        screen.blit(name_a, (SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 + 60))
+
+        # Type B
+        color_b = RED if selected_char_idx == 1 else (100, 50, 50)
+        rect_b = pygame.Rect(SCREEN_WIDTH//2 + 50, SCREEN_HEIGHT//2 - 50, 100, 100)
+        pygame.draw.rect(screen, color_b, rect_b)
+        name_b = small_font.render("Type B: 高速移動", True, WHITE)
+        screen.blit(name_b, (SCREEN_WIDTH//2 + 50, SCREEN_HEIGHT//2 + 60))
+        
+        # 選択枠の強調
+        if selected_char_idx == 0:
+            pygame.draw.rect(screen, YELLOW, rect_a, 5)
+        else:
+            pygame.draw.rect(screen, YELLOW, rect_b, 5)
+
+        guide_text = small_font.render("← → で選択 / Z or SPACE で決定", True, YELLOW)
+        screen.blit(guide_text, (SCREEN_WIDTH//2 - guide_text.get_width()//2, SCREEN_HEIGHT - 100))
+
     elif current_state == GAME_STATE_PLAYING:
         all_sprites.draw(screen)
-        
         score_text = small_font.render(f"スコア: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
-        
         if not is_boss_active:
             next_text = small_font.render(f"ボスまで: {next_boss_score - score}", True, YELLOW)
             screen.blit(next_text, (10, 40))
-
         if is_boss_active:
             for b in boss_group:
                 pygame.draw.rect(screen, RED, (100, 20, 400, 20))
                 hp_ratio = b.hp / b.max_hp
                 pygame.draw.rect(screen, GREEN, (100, 20, 400 * hp_ratio, 20))
                 pygame.draw.rect(screen, WHITE, (100, 20, 400, 20), 2)
-                # HPの文字も追加
                 hp_text = small_font.render(f"Boss HP: {b.hp}", True, WHITE)
                 screen.blit(hp_text, (100, 45))
 
     elif current_state == GAME_STATE_GAMEOVER:
         over_text = font.render("ゲームオーバー", True, RED)
         score_res_text = font.render(f"最終スコア: {score}", True, WHITE)
-        retry_text = small_font.render("Rキーでリトライ", True, WHITE)
-        
+        retry_text = small_font.render("Rキーでタイトルへ", True, WHITE)
         screen.blit(over_text, (SCREEN_WIDTH//2 - over_text.get_width()//2, SCREEN_HEIGHT//2 - 50))
         screen.blit(score_res_text, (SCREEN_WIDTH//2 - score_res_text.get_width()//2, SCREEN_HEIGHT//2))
         screen.blit(retry_text, (SCREEN_WIDTH//2 - retry_text.get_width()//2, SCREEN_HEIGHT//2 + 50))
