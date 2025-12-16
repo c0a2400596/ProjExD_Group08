@@ -32,31 +32,73 @@ BOSS_APPEAR_INTERVAL = 150
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 class Player(pygame.sprite.Sprite):
-    """自機クラス"""
+    """自機クラス（PNG画像対応・高画質化版）"""
     def __init__(self, p_type=0):
         super().__init__()
         self.p_type = p_type # 0:TypeA, 1:TypeB
+        
+        # デフォルト画像（読み込み失敗時やTypeA用）
         self.image = pygame.Surface((30, 30))
         
         # タイプによって色と性能を変える
         if self.p_type == 0:
-            # Type A: バランス型（青）
+            # Type A: バランス型（青・四角）
             self.image.fill(BLUE)
             self.speed = 5
             self.shoot_interval = 80
+            self.rect = self.image.get_rect()
         else:
-            # Type B: 高速移動型（赤）
-            self.image.fill(RED)
+            # Type B: 高速移動型（赤・画像読み込み）
+            try:
+                # ★修正箇所：拡張子を .png に変更しました
+                image_path = "Gemini_Generated_Image_5a8oni5a8oni5a8o.png"
+                
+                # 画像を読み込み
+                original_image = pygame.image.load(image_path).convert_alpha()
+                
+                # --- 白背景除去処理 ---
+                # 画像の中に混ざっている「白っぽいノイズ」を透明にします
+                threshold = 200 # 200以上の明るさは透明にする
+                width, height = original_image.get_size()
+                
+                original_image.lock()
+                for x in range(width):
+                    for y in range(height):
+                        r, g, b, a = original_image.get_at((x, y))
+                        # 白に近い色は透明にする
+                        if r > threshold and g > threshold and b > threshold:
+                            original_image.set_at((x, y), (255, 255, 255, 0))
+                original_image.unlock()
+                
+                # --- 余白削除とリサイズ ---
+                # 透明部分を除いた範囲を自動検出
+                rect = original_image.get_bounding_rect()
+                
+                if rect.width > 0 and rect.height > 0:
+                    # キャラ部分だけ切り抜き
+                    cropped_image = original_image.subsurface(rect)
+                    # ガタガタにならないよう綺麗にリサイズ (smoothscale)
+                    self.image = pygame.transform.smoothscale(cropped_image, (50, 50))
+                else:
+                    self.image = pygame.transform.smoothscale(original_image, (50, 50))
+
+            except Exception as e:
+                print(f"画像読み込み失敗: {e}")
+                # 失敗時は赤い四角にする
+                self.image = pygame.Surface((30, 30))
+                self.image.fill(RED)
+            
             self.speed = 8
             self.shoot_interval = 80
-
+            
+        # 当たり判定と位置の更新
         self.rect = self.image.get_rect()
         self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
         self.last_shot_time = 0
 
     def update(self):
         keys = pygame.key.get_pressed()
-        # Shiftキーを押している間は低速移動（東方風）
+        # Shiftキーを押している間は低速移動
         current_speed = self.speed
         if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
             current_speed = self.speed / 2
@@ -73,14 +115,16 @@ class Player(pygame.sprite.Sprite):
     def shoot(self):
         now = pygame.time.get_ticks()
         if now - self.last_shot_time > self.shoot_interval:
-            # 3WAY弾
-            bullet_centers = [0, -15, 15]
+            # 弾の発射パターン
+            if self.p_type == 0:
+                bullet_centers = [0]
+            else:
+                bullet_centers = [0, -15, 15] # 3WAY
+
             for angle in bullet_centers:
                 rad = math.radians(angle)
                 vx = math.sin(rad) * 10
                 vy = -math.cos(rad) * 10
-                # 弾の色もキャラに合わせる
-                is_p = True
                 bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True, p_type=self.p_type)
                 all_sprites.add(bullet)
                 player_bullets.add(bullet)
@@ -125,15 +169,17 @@ class Enemy(pygame.sprite.Sprite):
             self.kill()
 
     def shoot_at_player(self):
-        dx = player.rect.centerx - self.rect.centerx
-        dy = player.rect.centery - self.rect.centery
-        angle = math.atan2(dy, dx)
-        speed = 5
-        vx = math.cos(angle) * speed
-        vy = math.sin(angle) * speed
-        bullet = Bullet(self.rect.centerx, self.rect.centery, vy, vx, is_player_bullet=False)
-        all_sprites.add(bullet)
-        enemy_bullets.add(bullet)
+        # プレイヤーが生きていれば狙う
+        if player and player.alive():
+            dx = player.rect.centerx - self.rect.centerx
+            dy = player.rect.centery - self.rect.centery
+            angle = math.atan2(dy, dx)
+            speed = 5
+            vx = math.cos(angle) * speed
+            vy = math.sin(angle) * speed
+            bullet = Bullet(self.rect.centerx, self.rect.centery, vy, vx, is_player_bullet=False)
+            all_sprites.add(bullet)
+            enemy_bullets.add(bullet)
 
 class Boss(pygame.sprite.Sprite):
     """ボスクラス"""
@@ -160,13 +206,13 @@ class Boss(pygame.sprite.Sprite):
             self.timer += 1
             self.rect.x = (SCREEN_WIDTH // 2) + math.sin(self.timer * 0.05) * 150
             
-            if self.timer % 5 == 0:
+            if self.timer % 60 == 0: # 頻度調整
                 self.shoot_danmaku()
 
     def shoot_danmaku(self):
         self.angle += 12
         bullet_speed = 4
-        for i in range(0, 360, 90):
+        for i in range(0, 360, 45): # 弾数を調整
             theta = math.radians(self.angle + i)
             vx = math.cos(theta) * bullet_speed
             vy = math.sin(theta) * bullet_speed
@@ -182,7 +228,7 @@ class Bullet(pygame.sprite.Sprite):
         self.image = pygame.Surface((size, size))
         
         if is_player_bullet:
-            color = CYAN if p_type == 0 else (255, 100, 100) # タイプによって弾の色変更
+            color = CYAN if p_type == 0 else (255, 100, 100)
             self.image.fill(color)
         else:
             color = RED
@@ -204,7 +250,7 @@ class Bullet(pygame.sprite.Sprite):
 # --- 3. ゲーム初期化 ---
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("シューティングゲーム")
+pygame.display.set_caption("東方風シューティング")
 clock = pygame.time.Clock()
 
 # フォント設定
@@ -230,11 +276,11 @@ score = 0
 next_boss_score = BOSS_APPEAR_INTERVAL
 boss_level = 1
 is_boss_active = False
-selected_char_idx = 0 # 0:TypeA, 1:TypeB
+selected_char_idx = 0 
 
 # ゲーム状態定義
 GAME_STATE_TITLE = 0
-GAME_STATE_SELECT = 1     # ★追加
+GAME_STATE_SELECT = 1    
 GAME_STATE_PLAYING = 2
 GAME_STATE_GAMEOVER = 3
 current_state = GAME_STATE_TITLE
@@ -251,18 +297,18 @@ while running:
         if current_state == GAME_STATE_TITLE:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    current_state = GAME_STATE_SELECT # 選択画面へ
+                    current_state = GAME_STATE_SELECT 
                 elif event.key == pygame.K_ESCAPE:
                     running = False
 
-        # ■ キャラ選択画面 (新設)
+        # ■ キャラ選択画面
         elif current_state == GAME_STATE_SELECT:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:
                     selected_char_idx = 0 # Type A
-                elif event.key == pygame.K_RIGHT:
+                if event.key == pygame.K_RIGHT:
                     selected_char_idx = 1 # Type B
-                elif event.key == pygame.K_SPACE or event.key == pygame.K_z:
+                if event.key == pygame.K_SPACE or event.key == pygame.K_z:
                     # ゲーム開始初期化処理
                     all_sprites.empty()
                     enemies.empty()
@@ -270,7 +316,6 @@ while running:
                     player_bullets.empty()
                     enemy_bullets.empty()
                     
-                    # 選択したタイプでプレイヤー生成
                     player = Player(selected_char_idx)
                     all_sprites.add(player)
                     
@@ -279,8 +324,8 @@ while running:
                     boss_level = 1
                     is_boss_active = False
                     current_state = GAME_STATE_PLAYING
-                elif event.key == pygame.K_ESCAPE:
-                    current_state = GAME_STATE_TITLE # 戻る
+                if event.key == pygame.K_ESCAPE:
+                    current_state = GAME_STATE_TITLE
 
         # ■ ゲームオーバー画面
         elif current_state == GAME_STATE_GAMEOVER:
@@ -291,7 +336,7 @@ while running:
     if current_state == GAME_STATE_PLAYING:
         keys = pygame.key.get_pressed()
         if keys[pygame.K_z]:
-            player.shoot()
+            if player: player.shoot()
 
         if not is_boss_active and score >= next_boss_score:
             is_boss_active = True
@@ -328,9 +373,9 @@ while running:
                     boss_level += 1
                     next_boss_score = score + BOSS_APPEAR_INTERVAL
 
-        if pygame.sprite.spritecollide(player, enemies, False) or \
+        if player and (pygame.sprite.spritecollide(player, enemies, False) or \
            pygame.sprite.spritecollide(player, enemy_bullets, False) or \
-           pygame.sprite.spritecollide(player, boss_group, False):
+           pygame.sprite.spritecollide(player, boss_group, False)):
             current_state = GAME_STATE_GAMEOVER
 
     # --- 描画処理 ---
@@ -348,22 +393,19 @@ while running:
         sel_title = font.render("キャラクター選択", True, WHITE)
         screen.blit(sel_title, (SCREEN_WIDTH//2 - sel_title.get_width()//2, 100))
         
-        # キャラクターのプレビュー描画（四角形を表示）
-        # Type A
+        # プレビュー
         color_a = BLUE if selected_char_idx == 0 else (50, 50, 100)
         rect_a = pygame.Rect(SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 - 50, 100, 100)
         pygame.draw.rect(screen, color_a, rect_a)
         name_a = small_font.render("Type A: バランス", True, WHITE)
         screen.blit(name_a, (SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 + 60))
 
-        # Type B
         color_b = RED if selected_char_idx == 1 else (100, 50, 50)
         rect_b = pygame.Rect(SCREEN_WIDTH//2 + 50, SCREEN_HEIGHT//2 - 50, 100, 100)
         pygame.draw.rect(screen, color_b, rect_b)
-        name_b = small_font.render("Type B: 高速移動", True, WHITE)
+        name_b = small_font.render("Type B: 画像", True, WHITE)
         screen.blit(name_b, (SCREEN_WIDTH//2 + 50, SCREEN_HEIGHT//2 + 60))
         
-        # 選択枠の強調
         if selected_char_idx == 0:
             pygame.draw.rect(screen, YELLOW, rect_a, 5)
         else:
