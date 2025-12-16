@@ -31,32 +31,49 @@ BOSS_APPEAR_INTERVAL = 150
 # 作業ディレクトリの固定
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-class Player(pygame.sprite.Sprite):
-    """自機クラス"""
-    def __init__(self, p_type=0):
+# --- クラス定義 ---
+
+class Bullet(pygame.sprite.Sprite):
+    """弾クラス"""
+    def __init__(self, x, y, vy, vx=0, is_player_bullet=True, color=WHITE):
         super().__init__()
-        self.p_type = p_type # 0:TypeA, 1:TypeB
-        self.image = pygame.Surface((30, 30))
+        size = 10 if is_player_bullet else 8
+        self.image = pygame.Surface((size, size))
         
-        # タイプによって色と性能を変える
-        if self.p_type == 0:
-            # Type A: バランス型（青）
-            self.image.fill(BLUE)
-            self.speed = 5
-            self.shoot_interval = 80
+        if is_player_bullet:
+            # プレイヤー弾は引数で色を指定可能にする
+            self.image.fill(color)
         else:
-            # Type B: 高速移動型（赤）
-            self.image.fill(RED)
-            self.speed = 8
-            self.shoot_interval = 80
+            # 敵弾は赤玉
+            pygame.draw.circle(self.image, RED, (size//2, size//2), size//2)
+            self.image.set_colorkey(BLACK)
 
         self.rect = self.image.get_rect()
-        self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
-        self.last_shot_time = 0
+        self.rect.center = (x, y)
+        self.vy = vy
+        self.vx = vx
 
     def update(self):
+        self.rect.y += self.vy
+        self.rect.x += self.vx
+        if self.rect.bottom < -50 or self.rect.top > SCREEN_HEIGHT + 50 or \
+           self.rect.left < -50 or self.rect.right > SCREEN_WIDTH + 50:
+            self.kill()
+
+class Player(pygame.sprite.Sprite):
+    """自機の親クラス（共通機能）"""
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((30, 30)) # デフォルト
+        self.rect = self.image.get_rect()
+        self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
+        self.speed = 5
+        self.last_shot_time = 0
+        self.shoot_interval = 80
+    
+    def update(self):
         keys = pygame.key.get_pressed()
-        # Shiftキーを押している間は低速移動（東方風）
+        # Shiftキーで低速移動
         current_speed = self.speed
         if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
             current_speed = self.speed / 2
@@ -71,17 +88,49 @@ class Player(pygame.sprite.Sprite):
             self.rect.y += current_speed
 
     def shoot(self):
+        """子クラスでオーバーライド（上書き）するためのメソッド"""
+        pass
+
+class PlayerBalance(Player):
+    """Type A: バランス型（青）"""
+    def __init__(self):
+        super().__init__()
+        self.image.fill(BLUE)
+        self.speed = 5
+        self.shoot_interval = 80
+
+    def shoot(self):
         now = pygame.time.get_ticks()
         if now - self.last_shot_time > self.shoot_interval:
-            # 3WAY弾
+            # 3WAY弾 (シアン)
             bullet_centers = [0, -15, 15]
             for angle in bullet_centers:
                 rad = math.radians(angle)
                 vx = math.sin(rad) * 10
                 vy = -math.cos(rad) * 10
-                # 弾の色もキャラに合わせる
-                is_p = True
-                bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True, p_type=self.p_type)
+                bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True, color=CYAN)
+                all_sprites.add(bullet)
+                player_bullets.add(bullet)
+            self.last_shot_time = now
+
+class PlayerSpeed(Player):
+    """Type B: 高速移動型（赤）"""
+    def __init__(self):
+        super().__init__()
+        self.image.fill(RED)
+        self.speed = 8
+        self.shoot_interval = 80 
+
+    def shoot(self):
+        now = pygame.time.get_ticks()
+        if now - self.last_shot_time > self.shoot_interval:
+            # 3WAY弾 (少し赤い白)
+            bullet_centers = [0, -15, 15] 
+            for angle in bullet_centers:
+                rad = math.radians(angle)
+                vx = math.sin(rad) * 10
+                vy = -math.cos(rad) * 10
+                bullet = Bullet(self.rect.centerx, self.rect.top, vy, vx, is_player_bullet=True, color=(255, 100, 100))
                 all_sprites.add(bullet)
                 player_bullets.add(bullet)
             self.last_shot_time = now
@@ -125,15 +174,16 @@ class Enemy(pygame.sprite.Sprite):
             self.kill()
 
     def shoot_at_player(self):
-        dx = player.rect.centerx - self.rect.centerx
-        dy = player.rect.centery - self.rect.centery
-        angle = math.atan2(dy, dx)
-        speed = 5
-        vx = math.cos(angle) * speed
-        vy = math.sin(angle) * speed
-        bullet = Bullet(self.rect.centerx, self.rect.centery, vy, vx, is_player_bullet=False)
-        all_sprites.add(bullet)
-        enemy_bullets.add(bullet)
+        if player: # プレイヤーが存在する場合のみ
+            dx = player.rect.centerx - self.rect.centerx
+            dy = player.rect.centery - self.rect.centery
+            angle = math.atan2(dy, dx)
+            speed = 5
+            vx = math.cos(angle) * speed
+            vy = math.sin(angle) * speed
+            bullet = Bullet(self.rect.centerx, self.rect.centery, vy, vx, is_player_bullet=False)
+            all_sprites.add(bullet)
+            enemy_bullets.add(bullet)
 
 class Boss(pygame.sprite.Sprite):
     """ボスクラス"""
@@ -174,33 +224,6 @@ class Boss(pygame.sprite.Sprite):
             all_sprites.add(bullet)
             enemy_bullets.add(bullet)
 
-class Bullet(pygame.sprite.Sprite):
-    """弾クラス"""
-    def __init__(self, x, y, vy, vx=0, is_player_bullet=True, p_type=0):
-        super().__init__()
-        size = 10 if is_player_bullet else 8
-        self.image = pygame.Surface((size, size))
-        
-        if is_player_bullet:
-            color = CYAN if p_type == 0 else (255, 100, 100) # タイプによって弾の色変更
-            self.image.fill(color)
-        else:
-            color = RED
-            pygame.draw.circle(self.image, color, (size//2, size//2), size//2)
-            self.image.set_colorkey(BLACK)
-
-        self.rect = self.image.get_rect()
-        self.rect.center = (x, y)
-        self.vy = vy
-        self.vx = vx
-
-    def update(self):
-        self.rect.y += self.vy
-        self.rect.x += self.vx
-        if self.rect.bottom < -50 or self.rect.top > SCREEN_HEIGHT + 50 or \
-           self.rect.left < -50 or self.rect.right > SCREEN_WIDTH + 50:
-            self.kill()
-
 # --- 3. ゲーム初期化 ---
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -222,8 +245,7 @@ boss_group = pygame.sprite.Group()
 player_bullets = pygame.sprite.Group()
 enemy_bullets = pygame.sprite.Group()
 
-# プレイヤー変数はここで定義だけしておく
-player = None
+player = None # プレイヤーインスタンス用
 
 # ゲーム変数
 score = 0
@@ -234,7 +256,7 @@ selected_char_idx = 0 # 0:TypeA, 1:TypeB
 
 # ゲーム状態定義
 GAME_STATE_TITLE = 0
-GAME_STATE_SELECT = 1     # ★追加
+GAME_STATE_SELECT = 1
 GAME_STATE_PLAYING = 2
 GAME_STATE_GAMEOVER = 3
 current_state = GAME_STATE_TITLE
@@ -255,7 +277,7 @@ while running:
                 elif event.key == pygame.K_ESCAPE:
                     running = False
 
-        # ■ キャラ選択画面 (新設)
+        # ■ キャラ選択画面
         elif current_state == GAME_STATE_SELECT:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:
@@ -270,8 +292,12 @@ while running:
                     player_bullets.empty()
                     enemy_bullets.empty()
                     
-                    # 選択したタイプでプレイヤー生成
-                    player = Player(selected_char_idx)
+                    # ★ここでクラスを使い分ける
+                    if selected_char_idx == 0:
+                        player = PlayerBalance()
+                    else:
+                        player = PlayerSpeed()
+                        
                     all_sprites.add(player)
                     
                     score = 0
