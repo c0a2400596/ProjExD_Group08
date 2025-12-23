@@ -187,7 +187,7 @@ class PlayerMelee(Player):
         super().__init__()
         
         try:
-            image_path = "Gemini_Generated_Image_5a8oni5a8oni5a8o.png"
+            image_path = "./fig/Gemini_Generated_Image_5a8oni5a8oni5a8o.png"
             original_image = pygame.image.load(image_path).convert_alpha()
             threshold = 200
             width, height = original_image.get_size()
