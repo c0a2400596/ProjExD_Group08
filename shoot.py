@@ -38,7 +38,7 @@ class Bullet(pygame.sprite.Sprite):
     弾クラス（修正版）
     寿命(life)と近接属性(is_melee)を追加
     """
-    def __init__(self, x:float, y:float, vy:float, vx:float=0, is_player_bullet:bool=True, color:tuple=WHITE, pierce=False, damage=1, is_melee=False, life=0, size=0) -> None:
+    def __init__(self, x:float, y:float, vy:float, vx:float=0, is_player_bullet:bool=True, color:tuple=WHITE, pierce:bool=False, damage:int=1, is_melee:bool=False, life:int=0, size:int=0) -> None:
         """
         弾の設定
         引数 x,y: 弾の座標
@@ -47,6 +47,9 @@ class Bullet(pygame.sprite.Sprite):
         引数 color: 弾の色
         引数 pierce: 貫通判定の有無
         引数 damge: ボスに与えるダメージ量
+        引数 is_melee: 近接キャラかどうか
+        引数 size: 弾のサイズ
+        引数 life: 弾の寿命
         """
         super().__init__()
 
@@ -278,10 +281,10 @@ class PlayerShotgun(Player):
 
 class PlayerReimu(Player):
     """
-    Type C: 博麗霊夢風のホーミング（誘導）機体
+    Type D: 博麗霊夢風のホーミング（誘導）機体
     最も近い敵を自動で索敵し、追尾する弾を発射する。
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         コンストラクタ
         機体の色や速度、弾の連射速度を初期化する。
@@ -377,8 +380,13 @@ class PlayerReimu(Player):
     
 
 class PlayerMelee(Player):
-    """Type D: 近接型"""
-    def __init__(self):
+    """
+    Type G: 近接型
+    """
+    def __init__(self) -> None:
+        """
+        近接型の各種設定
+        """
         super().__init__()
         # 画像読み込み（なければ四角形で代用）
         try:
@@ -415,7 +423,10 @@ class PlayerMelee(Player):
         self.speed = 6
         self.shoot_interval = 15 # 連射速度速い（近接攻撃）
         
-    def shoot(self):
+    def shoot(self) -> None:
+        """
+        近接型の射撃機構
+        """
         
         if not keys[pygame.K_z]:
             return
@@ -442,7 +453,7 @@ class PlayerMelee(Player):
 
 class PlayerSwitch(Player):
     """
-    Type C: 射撃モード切替型
+    Type E: 射撃モード切替型
     """
     def __init__(self) -> None:
         """
@@ -484,8 +495,13 @@ class PlayerSwitch(Player):
             self.last_toggle_time = now
 
 class PlayerCharge(Player):
-    """Type F: チャージショット型（水色）"""
-    def __init__(self):
+    """
+    Type F: チャージショット型（水色）
+    """
+    def __init__(self) -> None:
+        """
+        チャージショット型の各種設定
+        """
         super().__init__()
         self.image.fill(CYAN)
         self.speed = 5
@@ -495,7 +511,10 @@ class PlayerCharge(Player):
         self.charge_time = 0
         self.max_charge = 120  # フレーム上限
 
-    def shoot(self):
+    def shoot(self) -> None:
+        """
+        チャージショット型の射撃機構
+        """
         keys = pygame.key.get_pressed()
 
         # Zキーが押されている間：チャージ
@@ -527,7 +546,7 @@ class PlayerCharge(Player):
                     vy=vy,
                     vx=vx,
                     is_player_bullet=True,
-                    color=YELLOW,
+                    color=CYAN,
                     pierce=True,
                     damage=damage
                 )
